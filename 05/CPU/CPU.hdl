@@ -1,0 +1,66 @@
+// This file is part of www.nand2tetris.org
+// and the book "The Elements of Computing Systems"
+// by Nisan and Schocken, MIT Press.
+// File name: projects/05/CPU.hdl
+/**
+ * The Hack Central Processing unit (CPU).
+ * Parses the binary code in the instruction input and executes it according to the
+ * Hack machine language specification. In the case of a C-instruction, computes the
+ * function specified by the instruction. If the instruction specifies to read a memory
+ * value, the inM input is expected to contain this value. If the instruction specifies
+ * to write a value to the memory, sets the outM output to this value, sets the addressM
+ * output to the target address, and asserts the writeM output (when writeM == 0, any
+ * value may appear in outM).
+ * If the reset input is 0, computes the address of the next instruction and sets the
+ * pc output to that value. If the reset input is 1, sets pc to 0.
+ * Note: The outM and writeM outputs are combinational: they are affected by the
+ * instruction's execution during the current cycle. The addressM and pc outputs are
+ * clocked: although they are affected by the instruction's execution, they commit to
+ * their new values only in the next cycle.
+ */
+CHIP CPU {
+
+    IN  inM[16],         // M value input  (M = contents of RAM[A])
+        instruction[16], // Instruction for execution
+        reset;           // Signals whether to restart the current
+                         // program (reset==1) or continue executing
+                         // the current program (reset==0).
+
+    OUT outM[16],        // M value output
+        writeM,          // Write to M? 
+        addressM[15],    // Address in data memory (of M)
+        pc[15];          // Address of next instruction
+
+    PARTS:
+
+    /* A-register */
+    Not(in=instruction[15], out=isInsturctionA);           // A명령어인지 C명령어인지 확인
+    Mux16(a=instruction, b=ALUout, sel=instruction[15], out=aRegIn);    // A-reg에 A명령어면 명령어, C명령어면 ALU결과값을 저장
+    Or(a=isInsturctionA, b=instruction[5], out=load2A);     // A명령어이거나 dest0이 1일때 A레지스터에 입력값 저장 
+    ARegister(in=aRegIn, load=load2A, out=aRegOut, out[0..14]=addressM);  
+    Mux16(a=aRegOut, b=inM, sel=instruction[12], out=ALUy);     //  ALU의 y입력값을 A레지스터의 값으로 할지 inM으로 할지 결정
+
+    /* D-register */
+    And(a=instruction[15], b=instruction[4], out=loadD);    // C명령어이고 dest1이 1일 때 D레지스터에 입력값 저장
+    DRegister(in=ALUout, load=loadD, out=dRegOut);          
+
+    /* ALU */
+    ALU(x=dRegOut, y=ALUy, zx=instruction[11],nx=instruction[10],zy=instruction[9],
+        ny=instruction[8], f=instruction[7], no=instruction[6], out=ALUout, out=outM, zr=zr,ng=ng);
+    
+    /* write RAM */
+    And(a=instruction[15], b=instruction[3], out=writeM);   // A명령어이거나 des2가 1일 때 RAM에 데이터 저장
+
+    /* decode JMP */
+    Not(in=zr, out=JNE); // !=0
+    Not(in=ng, out=JGE); // >=0 
+    And(a=JNE, b=JGE, out=JGT); // >0
+    Not(in=JGT, out=JLE); // <=0
+
+    Mux8Way16(a=false, b[0]=JGT, c[0]=zr, d[0]=JGE, e[0]=ng, f[0]=JNE, g[0]=JLE, h=true, sel=instruction[0..2], out[0]=jmp);             
+    And(a=jmp, b=instruction[15], out=PCload);
+    Not(in=PCload, out=PCinc);
+
+    /* PC */
+    PC(in=aRegOut, load=PCload, inc=PCinc, reset=reset, out[0..14]=pc);
+}
